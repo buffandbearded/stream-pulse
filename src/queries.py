@@ -1,22 +1,27 @@
-"""Read-side helpers: a lock-tolerant DuckDB connection and the Stage 4 aggregations."""
+"""Read-side helpers: a connection over the raw Parquet files, and the Stage 4 aggregations.
+
+The raw layer is append-only Parquet, so there are no file locks between the consumer
+(writer) and any readers. Duplicates (possible after a consumer restart/replay) are removed
+here with a window function keyed on event_id."""
 import os
-import time
 
 import duckdb
 
-DB_PATH = os.getenv("DB_PATH", "data/stream.duckdb")
+RAW_DIR = os.getenv("RAW_DIR", "data/raw")
 
 
-def connect_read(retries: int = 20, delay: float = 0.25):
-    """Open the DB read-only, retrying while the consumer holds the write lock."""
-    last = None
-    for _ in range(retries):
-        try:
-            return duckdb.connect(DB_PATH, read_only=True)
-        except duckdb.IOException as exc:
-            last = exc
-            time.sleep(delay)
-    raise last
+def connect_read(raw_dir: str = RAW_DIR):
+    """In-memory DuckDB with a deduplicated `raw_events` view over the Parquet files."""
+    glob = os.path.join(raw_dir, "*.parquet").replace("\\", "/")
+    con = duckdb.connect(":memory:")
+    con.execute(f"""
+        CREATE VIEW raw_events AS
+        SELECT * EXCLUDE (rn) FROM (
+            SELECT *, row_number() OVER (PARTITION BY event_id ORDER BY ingested_at) AS rn
+            FROM read_parquet('{glob}')
+        ) WHERE rn = 1
+    """)
+    return con
 
 
 # All windows are anchored on the newest event in the table, not on the wall clock,

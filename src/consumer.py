@@ -1,8 +1,11 @@
-"""Consumes wiki.recentchange from Redpanda, validates events and writes them to DuckDB.
-Invalid events go to a dead-letter topic. Offsets are committed only after the DuckDB
-write succeeds (at-least-once) and inserts are idempotent on event_id (so effectively once)."""
+"""Consumes wiki.recentchange from Redpanda, validates events and writes micro-batches
+as append-only Parquet files (the raw layer). Invalid events go to a dead-letter topic.
+Offsets are committed only after the Parquet file is safely written (at-least-once);
+duplicates after a replay are removed at read time, keyed on event_id."""
 import os
 import time
+import uuid
+from datetime import datetime, timezone
 
 import duckdb
 from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
@@ -12,19 +15,19 @@ from src.models import parse_event
 BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "localhost:9092")
 TOPIC = os.getenv("TOPIC", "wiki.recentchange")
 DLQ_TOPIC = os.getenv("DLQ_TOPIC", "wiki.recentchange.dlq")
-DB_PATH = os.getenv("DB_PATH", "data/stream.duckdb")
+RAW_DIR = os.getenv("RAW_DIR", "data/raw")
 BATCH_SIZE = 200
 FLUSH_SECONDS = 5
 
 COLUMNS = [
     "event_id", "rc_id", "event_type", "wiki", "title", "user_name", "is_bot",
     "is_minor", "namespace", "length_old", "length_new", "comment", "event_ts",
-    "kafka_partition", "kafka_offset",
+    "kafka_partition", "kafka_offset", "ingested_at",
 ]
 
-DDL = """
-CREATE TABLE IF NOT EXISTS raw_events (
-    event_id VARCHAR PRIMARY KEY,
+BATCH_DDL = """
+CREATE TABLE batch (
+    event_id VARCHAR,
     rc_id BIGINT,
     event_type VARCHAR,
     wiki VARCHAR,
@@ -39,23 +42,34 @@ CREATE TABLE IF NOT EXISTS raw_events (
     event_ts TIMESTAMP,
     kafka_partition INTEGER,
     kafka_offset BIGINT,
-    ingested_at TIMESTAMP DEFAULT current_timestamp
+    ingested_at TIMESTAMP
 )
 """
 
 
-def write_batch(batch):
-    """Open DuckDB just for this write, so other processes can read between flushes."""
-    con = duckdb.connect(DB_PATH)
+def write_batch(batch, raw_dir: str = RAW_DIR):
+    """Write one micro-batch as a Parquet file. Written to a temp name first and then
+    renamed, so readers never see a half-written file."""
+    if not batch:
+        return None
+    os.makedirs(raw_dir, exist_ok=True)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    con = duckdb.connect(":memory:")
     try:
-        con.execute(DDL)
-        if not batch:
-            return
+        con.execute(BATCH_DDL)
         placeholders = ", ".join("?" for _ in COLUMNS)
-        sql = f"INSERT OR IGNORE INTO raw_events ({', '.join(COLUMNS)}) VALUES ({placeholders})"
-        con.executemany(sql, [[row[c] for c in COLUMNS] for row in batch])
+        con.executemany(
+            f"INSERT INTO batch ({', '.join(COLUMNS)}) VALUES ({placeholders})",
+            [[row.get(c, now) if c == "ingested_at" else row[c] for c in COLUMNS] for row in batch],
+        )
+        name = f"part-{now:%Y%m%dT%H%M%S%f}-{uuid.uuid4().hex[:8]}"
+        tmp = os.path.join(raw_dir, f".{name}.tmp")
+        final = os.path.join(raw_dir, f"{name}.parquet")
+        con.execute(f"COPY batch TO '{tmp.replace(chr(92), '/')}' (FORMAT PARQUET)")
     finally:
         con.close()
+    os.replace(tmp, final)
+    return final
 
 
 def flush(consumer, dlq, batch):
@@ -71,8 +85,7 @@ def flush(consumer, dlq, batch):
 
 
 def main():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    write_batch([])  # create the table if it doesn't exist yet
+    os.makedirs(RAW_DIR, exist_ok=True)
 
     consumer = Consumer({
         "bootstrap.servers": BOOTSTRAP,
