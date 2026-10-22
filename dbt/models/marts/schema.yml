@@ -1,0 +1,20 @@
+version: 2
+
+models:
+  - name: fct_edits_per_minute
+    description: Per-minute event counts with bot/human split.
+    columns:
+      - name: event_minute
+        tests: [unique, not_null]
+      - name: events
+        tests: [not_null]
+  - name: mart_wiki_leaderboard
+    description: Activity ranking per wiki.
+    columns:
+      - name: wiki
+        tests: [unique, not_null]
+  - name: mart_top_editors
+    description: Top 100 human editors by edit count.
+    columns:
+      - name: user_name
+        tests: [unique, not_null]

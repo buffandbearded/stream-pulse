@@ -1,0 +1,17 @@
+name: stream_pulse
+version: "0.1.0"
+config-version: 2
+profile: stream_pulse
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+
+clean-targets: ["target", "logs"]
+
+models:
+  stream_pulse:
+    staging:
+      +materialized: table
+    marts:
+      +materialized: table

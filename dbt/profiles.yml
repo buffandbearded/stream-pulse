@@ -1,0 +1,9 @@
+# Run dbt from the repo root so these relative paths resolve:
+#   dbt build --project-dir dbt --profiles-dir dbt
+stream_pulse:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: data/warehouse.duckdb
+      threads: 1

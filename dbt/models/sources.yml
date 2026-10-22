@@ -1,0 +1,12 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Append-only Parquet micro-batches written by the Kafka consumer (src/consumer.py).
+      May contain duplicates after a consumer restart; staging deduplicates on event_id.
+    meta:
+      external_location: "read_parquet('data/raw/*.parquet')"
+    tables:
+      - name: raw_events
+        description: One row per validated Wikimedia recentchange event.

@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: stg_wiki_events
+    description: Deduplicated and enriched Wikimedia recentchange events (one row per event).
+    columns:
+      - name: event_id
+        description: Unique event id from the source stream (meta.id).
+        tests: [unique, not_null]
+      - name: event_type
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [edit, new, log, categorize, external]
+              config:
+                severity: warn   # Wikimedia may add event types; don't break the build
+      - name: wiki
+        tests: [not_null]
+      - name: wiki_family
+        tests: [not_null]
+      - name: user_name
+        tests: [not_null]
+      - name: is_bot
+        tests: [not_null]
+      - name: event_ts
+        tests: [not_null]
