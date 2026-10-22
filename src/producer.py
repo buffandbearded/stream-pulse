@@ -1,6 +1,7 @@
 """Reads the live Wikimedia recent-changes stream (SSE) and publishes each event to Redpanda."""
 import json
 import os
+import signal
 import time
 
 import requests
@@ -30,6 +31,7 @@ def stream_events():
 
 
 def main():
+    signal.signal(signal.SIGTERM, signal.default_int_handler)  # graceful stop on SIGTERM
     producer = Producer({"bootstrap.servers": BOOTSTRAP, "linger.ms": 50})
     count = 0
     try:

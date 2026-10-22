@@ -3,6 +3,7 @@ as append-only Parquet files (the raw layer). Invalid events go to a dead-letter
 Offsets are committed only after the Parquet file is safely written (at-least-once);
 duplicates after a replay are removed at read time, keyed on event_id."""
 import os
+import signal
 import time
 import uuid
 from datetime import datetime, timezone
@@ -85,6 +86,7 @@ def flush(consumer, dlq, batch):
 
 
 def main():
+    signal.signal(signal.SIGTERM, signal.default_int_handler)  # graceful stop on SIGTERM
     os.makedirs(RAW_DIR, exist_ok=True)
 
     consumer = Consumer({

@@ -6,8 +6,13 @@ import time
 
 import duckdb
 
-from src.queries import (BOT_VS_HUMAN, EDITS_PER_MINUTE, EVENT_TYPES, TOP_WIKIS,
-                         connect_read)
+from src.queries import (
+    BOT_VS_HUMAN,
+    EDITS_PER_MINUTE,
+    EVENT_TYPES,
+    TOP_WIKIS,
+    connect_read,
+)
 
 REFRESH_SECONDS = 5
 WINDOW_MINUTES = 10

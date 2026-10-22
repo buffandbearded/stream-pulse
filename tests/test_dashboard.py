@@ -22,7 +22,8 @@ def make_warehouse(path):
                 "distinct_users BIGINT, pct_bot DOUBLE)")
     con.execute("INSERT INTO mart_wiki_leaderboard VALUES ('enwiki','wikipedia',500,50,10.0),"
                 "('commonswiki','commons',300,20,30.0)")
-    con.execute("CREATE TABLE mart_top_editors (user_name VARCHAR, edits BIGINT, wikis_touched BIGINT, net_bytes BIGINT)")
+    con.execute("CREATE TABLE mart_top_editors (user_name VARCHAR, edits BIGINT, "
+                "wikis_touched BIGINT, net_bytes BIGINT)")
     con.execute("INSERT INTO mart_top_editors VALUES ('Alice',20,1,500)")
     con.execute("CREATE TABLE stg_wiki_events (event_type VARCHAR, wiki VARCHAR, wiki_family VARCHAR, "
                 "is_bot BOOLEAN, event_ts TIMESTAMP)")

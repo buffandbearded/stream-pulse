@@ -10,7 +10,7 @@ def parse_event(raw: bytes | str, partition: int, offset: int) -> dict:
     try:
         e = json.loads(raw)
     except (json.JSONDecodeError, TypeError) as exc:
-        raise ValueError(f"invalid JSON: {exc}")
+        raise ValueError(f"invalid JSON: {exc}") from exc
     if not isinstance(e, dict):
         raise ValueError("payload is not a JSON object")
 
@@ -24,8 +24,8 @@ def parse_event(raw: bytes | str, partition: int, offset: int) -> dict:
 
     try:
         event_ts = datetime.fromtimestamp(int(e["timestamp"]), tz=timezone.utc).replace(tzinfo=None)
-    except (ValueError, TypeError, OverflowError):
-        raise ValueError(f"bad timestamp: {e['timestamp']!r}")
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise ValueError(f"bad timestamp: {e['timestamp']!r}") from exc
 
     length = e.get("length") or {}
     return {
