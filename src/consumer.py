@@ -5,7 +5,7 @@ import os
 import time
 
 import duckdb
-from confluent_kafka import Consumer, Producer
+from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
 
 from src.models import parse_event
 
@@ -44,19 +44,35 @@ CREATE TABLE IF NOT EXISTS raw_events (
 """
 
 
-def flush(con, consumer, dlq, batch):
-    if batch:
+def write_batch(batch):
+    """Open DuckDB just for this write, so other processes can read between flushes."""
+    con = duckdb.connect(DB_PATH)
+    try:
+        con.execute(DDL)
+        if not batch:
+            return
         placeholders = ", ".join("?" for _ in COLUMNS)
         sql = f"INSERT OR IGNORE INTO raw_events ({', '.join(COLUMNS)}) VALUES ({placeholders})"
         con.executemany(sql, [[row[c] for c in COLUMNS] for row in batch])
+    finally:
+        con.close()
+
+
+def flush(consumer, dlq, batch):
+    if batch:
+        write_batch(batch)
     dlq.flush()
-    consumer.commit(asynchronous=False)
+    try:
+        consumer.commit(asynchronous=False)
+    except KafkaException as exc:
+        # Nothing consumed since the last commit - nothing to commit, not an error.
+        if exc.args[0].code() != KafkaError._NO_OFFSET:
+            raise
 
 
 def main():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    con = duckdb.connect(DB_PATH)
-    con.execute(DDL)
+    write_batch([])  # create the table if it doesn't exist yet
 
     consumer = Consumer({
         "bootstrap.servers": BOOTSTRAP,
@@ -87,16 +103,15 @@ def main():
 
             due = len(batch) >= BATCH_SIZE or (dirty and time.time() - last_flush >= FLUSH_SECONDS)
             if due:
-                flush(con, consumer, dlq, batch)
+                flush(consumer, dlq, batch)
                 good += len(batch)
                 print(f"Flushed {len(batch)} rows | total good={good} bad={bad}")
                 batch, dirty, last_flush = [], False, time.time()
     except KeyboardInterrupt:
         print("Stopping...")
     finally:
-        flush(con, consumer, dlq, batch)
+        flush(consumer, dlq, batch)
         consumer.close()
-        con.close()
 
 
 if __name__ == "__main__":
